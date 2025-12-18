@@ -37,6 +37,68 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({ result, isLoading,
                     <Badge>Confidence: {Math.round(result.confidence)}%</Badge>
                 </div>
 
+                {/* Image Quality Analysis (NEW) */}
+                {result.imageQuality && (
+                    <div className="p-6 rounded-xl border bg-card text-card-foreground shadow-sm space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-3 text-primary">
+                                <CheckCircle2 className="w-6 h-6" />
+                                <h3 className="font-semibold">Image Quality</h3>
+                            </div>
+                            {result.imageQuality.enhanced && (
+                                <Badge variant="success">Enhanced</Badge>
+                            )}
+                        </div>
+
+                        {/* Quality Score */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span>Overall Score</span>
+                                <span className="font-semibold">{result.imageQuality.score}%</span>
+                            </div>
+                            <ProgressBar value={result.imageQuality.score} />
+                        </div>
+
+                        {/* OCR Success Estimate */}
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span>Estimated OCR Success</span>
+                                <span className="font-semibold">{result.imageQuality.estimatedOCRSuccess}%</span>
+                            </div>
+                            <ProgressBar value={result.imageQuality.estimatedOCRSuccess} variant={result.imageQuality.estimatedOCRSuccess > 60 ? 'success' : 'warning'} />
+                        </div>
+
+                        {/* Details */}
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="text-center p-2 bg-muted/30 rounded">
+                                <div className="text-muted-foreground">Sharpness</div>
+                                <div className="font-semibold">{result.imageQuality.sharpness}%</div>
+                            </div>
+                            <div className="text-center p-2 bg-muted/30 rounded">
+                                <div className="text-muted-foreground">Contrast</div>
+                                <div className="font-semibold">{result.imageQuality.contrast}%</div>
+                            </div>
+                            <div className="text-center p-2 bg-muted/30 rounded">
+                                <div className="text-muted-foreground">Resolution</div>
+                                <div className="font-semibold capitalize">{result.imageQuality.resolution}</div>
+                            </div>
+                        </div>
+
+                        {/* Enhancement Info */}
+                        {result.imageQuality.enhanced && (
+                            <div className="text-xs text-muted-foreground bg-muted/30 p-2 rounded">
+                                ✨ Enhanced with {result.imageQuality.enhancementMethod === 'super_resolution' ? 'Super Resolution' : 'OpenCV'}
+                                ({result.imageQuality.enhancementTime}ms)
+                            </div>
+                        )}
+
+                        {/* Recommendation */}
+                        <p className="text-xs text-muted-foreground">
+                            {result.imageQuality.recommendation}
+                        </p>
+                    </div>
+                )}
+
                 {/* Processed Image Preview (Debug) */}
                 <div className="p-6 rounded-xl border bg-card text-card-foreground shadow-sm space-y-4">
                     <div className="flex items-center space-x-3 text-primary">
@@ -92,9 +154,40 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({ result, isLoading,
     );
 };
 
-// Simple internal Badge component
-const Badge = ({ children }: { children: React.ReactNode }) => (
-    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-primary text-primary-foreground hover:bg-primary/80">
-        {children}
-    </span>
-);
+// Simple internal Badge component with variant support
+const Badge = ({ children, variant = 'default' }: { children: React.ReactNode; variant?: 'default' | 'success' | 'warning' }) => {
+    const variantClasses = {
+        default: 'bg-primary text-primary-foreground',
+        success: 'bg-green-500 text-white',
+        warning: 'bg-yellow-500 text-white'
+    };
+
+    return (
+        <span className={cn(
+            "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent hover:opacity-80",
+            variantClasses[variant]
+        )}>
+            {children}
+        </span>
+    );
+};
+
+// Simple internal ProgressBar component
+const ProgressBar = ({ value, variant = 'default' }: { value: number; variant?: 'default' | 'success' | 'warning' }) => {
+    const variantClasses = {
+        default: 'bg-primary',
+        success: 'bg-green-500',
+        warning: 'bg-yellow-500'
+    };
+
+    const bgColor = value >= 70 ? variantClasses.success : value >= 40 ? variantClasses.default : variantClasses.warning;
+
+    return (
+        <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+            <div
+                className={cn("h-full transition-all duration-500", variant !== 'default' ? variantClasses[variant] : bgColor)}
+                style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+            />
+        </div>
+    );
+};

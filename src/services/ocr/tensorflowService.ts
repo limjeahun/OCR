@@ -1,25 +1,34 @@
-// import * as tf from '@tensorflow/tfjs'; // Removed to prevent hang
 import { ClassificationResult, DocumentType } from './types';
 
-// Placeholder for a real model URL
-const MODEL_URL = 'https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v3_small_100_224/classification/5/default/1';
+// TensorFlow.js import for Super Resolution
+// Note: Using dynamic import to avoid blocking initial load
+let tf: any = null;
+
+// Model URL for Super Resolution (Real-ESRGAN Lite - TFLite converted)
+// Alternative: Use OpenCV-based enhancement as fallback
+const SR_MODEL_URL = '/models/sr_model/model.json';
+
+export interface EnhancementResult {
+    canvas: HTMLCanvasElement;
+    enhanced: boolean;
+    method: 'super_resolution' | 'opencv_sharpen' | 'none';
+    processingTime: number;
+}
 
 export class TensorFlowService {
-    // private model: tf.GraphModel | null = null;
-    private model: any = null; // Type as any for now
+    private model: any = null;
+    private srModel: any = null;
     private isLoading = false;
+    private isSRLoading = false;
+    private srModelAvailable = false;
 
     async loadModel() {
         if (this.model || this.isLoading) return;
         this.isLoading = true;
         try {
-            // In a real scenario, we would load a custom model trained on ID cards
-            // this.model = await tf.loadGraphModel(MODEL_URL);
-            console.log('TensorFlow model loaded (Mock - Logic Only)');
-
-            // Simulate loading time
-            await new Promise(resolve => setTimeout(resolve, 500));
-            this.model = true; // Mark as loaded
+            console.log('TensorFlow classification model loaded (Mock - Aspect Ratio Heuristic)');
+            await new Promise(resolve => setTimeout(resolve, 200));
+            this.model = true;
         } catch (error) {
             console.error('Failed to load TF model:', error);
         } finally {
@@ -27,14 +36,43 @@ export class TensorFlowService {
         }
     }
 
+    /**
+     * Load TensorFlow.js and Super Resolution model
+     */
+    async loadSuperResolutionModel(): Promise<boolean> {
+        if (this.srModel || this.isSRLoading) return this.srModelAvailable;
+        this.isSRLoading = true;
+
+        try {
+            // Dynamic import TensorFlow.js
+            if (!tf) {
+                tf = await import('@tensorflow/tfjs');
+                console.log('[TensorFlow.js] Loaded');
+            }
+
+            // Try to load Super Resolution model if available
+            try {
+                this.srModel = await tf.loadGraphModel(SR_MODEL_URL);
+                this.srModelAvailable = true;
+                console.log('[Super Resolution] Model loaded');
+            } catch (e) {
+                console.warn('[Super Resolution] Model not available, using OpenCV enhancement fallback');
+                this.srModelAvailable = false;
+            }
+
+            return this.srModelAvailable;
+        } catch (error) {
+            console.error('[TensorFlow.js] Failed to load:', error);
+            return false;
+        } finally {
+            this.isSRLoading = false;
+        }
+    }
+
     async classify(imageElement: HTMLImageElement | HTMLCanvasElement): Promise<ClassificationResult> {
-        // Ensure "model" is loaded (just a delay for now)
         if (!this.model) {
             await this.loadModel();
         }
-
-        // TODO: Implement actual inference with TF model
-        // For now, use Aspect Ratio Heuristic which is very effective for this distinction
 
         let width, height;
         if (imageElement instanceof HTMLImageElement) {
@@ -48,23 +86,193 @@ export class TensorFlowService {
         const aspectRatio = width / height;
         console.log(`Classifying: ${width}x${height} (Aspect: ${aspectRatio.toFixed(2)})`);
 
-        // Use a smaller delay to feel responsive
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-        // Portrait (Height > Width) -> Likely Business Registration (A4)
+        // Portrait -> Business Registration (A4)
         if (height > width) {
-            return {
-                type: 'BUSINESS_REGISTRATION',
-                confidence: 0.85
-            };
+            return { type: 'BUSINESS_REGISTRATION', confidence: 0.85 };
         }
 
-        // Landscape -> Likely ID Card or Driver License
-        // For now default to ID_CARD as they are similar shape
+        // Landscape -> ID Card or Driver License
+        return { type: 'ID_CARD', confidence: 0.90 };
+    }
+
+    /**
+     * Enhance image quality using Super Resolution or OpenCV fallback
+     */
+    async enhanceImage(
+        imageElement: HTMLImageElement | HTMLCanvasElement,
+        onProgress?: (status: string) => void
+    ): Promise<EnhancementResult> {
+        const startTime = performance.now();
+
+        onProgress?.('Loading enhancement engine...');
+
+        // Try to use TensorFlow.js Super Resolution first
+        const srAvailable = await this.loadSuperResolutionModel();
+
+        if (srAvailable && this.srModel && tf) {
+            onProgress?.('Applying Super Resolution (2x)...');
+            try {
+                const result = await this.applySuperResolution(imageElement);
+                return {
+                    canvas: result,
+                    enhanced: true,
+                    method: 'super_resolution',
+                    processingTime: performance.now() - startTime
+                };
+            } catch (e) {
+                console.warn('[Super Resolution] Failed, falling back to OpenCV:', e);
+            }
+        }
+
+        // Fallback to OpenCV-based enhancement
+        onProgress?.('Enhancing with OpenCV...');
+        const result = await this.applyOpenCVEnhancement(imageElement);
         return {
-            type: 'ID_CARD',
-            confidence: 0.90
+            canvas: result,
+            enhanced: true,
+            method: 'opencv_sharpen',
+            processingTime: performance.now() - startTime
         };
+    }
+
+    /**
+     * Apply TensorFlow.js Super Resolution model
+     */
+    private async applySuperResolution(imageElement: HTMLImageElement | HTMLCanvasElement): Promise<HTMLCanvasElement> {
+        if (!tf || !this.srModel) {
+            throw new Error('Super Resolution model not available');
+        }
+
+        // Convert image to tensor
+        let tensor = tf.browser.fromPixels(imageElement);
+
+        // Normalize to [0, 1]
+        tensor = tensor.toFloat().div(255);
+
+        // Add batch dimension
+        tensor = tensor.expandDims(0);
+
+        // Run inference
+        const output = await this.srModel.predict(tensor);
+
+        // Convert back to canvas
+        const outputData = await output.squeeze().mul(255).clipByValue(0, 255).cast('int32').data();
+        const [height, width] = output.shape.slice(1, 3);
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        const imageData = ctx.createImageData(width, height);
+
+        // RGB to RGBA
+        for (let i = 0, j = 0; i < outputData.length; i += 3, j += 4) {
+            imageData.data[j] = outputData[i];
+            imageData.data[j + 1] = outputData[i + 1];
+            imageData.data[j + 2] = outputData[i + 2];
+            imageData.data[j + 3] = 255;
+        }
+
+        ctx.putImageData(imageData, 0, 0);
+
+        // Cleanup
+        tensor.dispose();
+        output.dispose();
+
+        return canvas;
+    }
+
+    /**
+     * OpenCV-based image enhancement (fallback)
+     * Applies: Upscale 1.5x + Sharpening + Contrast Enhancement + Denoising
+     */
+    private async applyOpenCVEnhancement(imageElement: HTMLImageElement | HTMLCanvasElement): Promise<HTMLCanvasElement> {
+        const cv = window.cv;
+        if (!cv) {
+            throw new Error('OpenCV not loaded');
+        }
+
+        let src = cv.imread(imageElement);
+        let dst = new cv.Mat();
+        let enhanced = new cv.Mat();
+
+        try {
+            // 1. Upscale 1.5x using bicubic interpolation
+            const scale = 1.5;
+            const newWidth = Math.round(src.cols * scale);
+            const newHeight = Math.round(src.rows * scale);
+            cv.resize(src, dst, new cv.Size(newWidth, newHeight), 0, 0, cv.INTER_CUBIC);
+
+            // 2. Convert to LAB color space for better enhancement
+            let lab = new cv.Mat();
+            cv.cvtColor(dst, lab, cv.COLOR_RGBA2RGB);
+            cv.cvtColor(lab, lab, cv.COLOR_RGB2Lab);
+
+            // Split LAB channels
+            let labChannels = new cv.MatVector();
+            cv.split(lab, labChannels);
+
+            // 3. Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to L channel
+            let clahe = new cv.CLAHE(2.0, new cv.Size(8, 8));
+            let lChannel = labChannels.get(0);
+            let enhancedL = new cv.Mat();
+            clahe.apply(lChannel, enhancedL);
+
+            // Update L channel
+            labChannels.set(0, enhancedL);
+
+            // Merge LAB channels
+            let mergedLab = new cv.Mat();
+            cv.merge(labChannels, mergedLab);
+
+            // Convert back to RGB
+            cv.cvtColor(mergedLab, enhanced, cv.COLOR_Lab2RGB);
+            cv.cvtColor(enhanced, enhanced, cv.COLOR_RGB2RGBA);
+
+            // 4. Unsharp Masking for sharpening
+            let blurred = new cv.Mat();
+            cv.GaussianBlur(enhanced, blurred, new cv.Size(0, 0), 3);
+            cv.addWeighted(enhanced, 1.5, blurred, -0.5, 0, enhanced);
+
+            // 5. Light denoising
+            let denoised = new cv.Mat();
+            cv.fastNlMeansDenoisingColored(enhanced, denoised, 3, 3, 7, 21);
+
+            // Output to canvas
+            const canvas = document.createElement('canvas');
+            cv.imshow(canvas, denoised);
+
+            // Cleanup
+            src.delete();
+            dst.delete();
+            enhanced.delete();
+            lab.delete();
+            labChannels.delete();
+            lChannel.delete();
+            enhancedL.delete();
+            mergedLab.delete();
+            blurred.delete();
+            denoised.delete();
+
+            return canvas;
+        } catch (e) {
+            // Cleanup on error
+            src.delete();
+            dst.delete();
+            enhanced.delete();
+            console.error('[OpenCV Enhancement] Error:', e);
+
+            // Return simple upscaled version as final fallback
+            const canvas = document.createElement('canvas');
+            const scale = 1.5;
+            canvas.width = Math.round(imageElement.width * scale);
+            canvas.height = Math.round(imageElement.height * scale);
+            const ctx = canvas.getContext('2d')!;
+            ctx.drawImage(imageElement, 0, 0, canvas.width, canvas.height);
+            return canvas;
+        }
     }
 }
 

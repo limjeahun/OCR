@@ -189,7 +189,8 @@ export class OpenCVService {
 
     // New helper for PaddleOCR DBNet Post-processing
     // mapData is Float32Array from ONNX (logits or prob), shape [H, W]
-    getBoxesFromMap(mapData: Float32Array, width: number, height: number, boxThreshold: number = 0.3): any[] {
+    // documentType: Used for dynamic dilation kernel sizing
+    getBoxesFromMap(mapData: Float32Array, width: number, height: number, boxThreshold: number = 0.3, documentType?: string): any[] {
         const cv = window.cv;
 
         // 1. Create Mat from data
@@ -204,9 +205,25 @@ export class OpenCVService {
         binary.convertTo(binary, cv.CV_8UC1, 255);
 
         // 2.5 Dilation to merge characters roughly
-        // Use a horizontal kernel to merge wide-spaced chars (like 代表)
-        // Reduced from 12x1 to 6x1 to prevent merging separate columns (Name + Date)
-        let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(6, 1));
+        // Dynamic kernel size based on document type to prevent over-merging
+        // BUSINESS_REGISTRATION: Medium kernel (5x1) - balance between char merge and column separation
+        // ID_CARD/DRIVER_LICENSE: Medium kernel (5x1) - structured but simpler
+        // Default: Standard kernel (6x1) - general documents
+        const getDilationKernelWidth = (docType?: string): number => {
+            switch (docType) {
+                case 'BUSINESS_REGISTRATION':
+                    return 5; // Increased from 3 to 5 - was fragmenting text
+                case 'ID_CARD':
+                case 'DRIVER_LICENSE':
+                    return 5;
+                default:
+                    return 6;
+            }
+        };
+        const kernelWidth = getDilationKernelWidth(documentType);
+        console.log(`[OpenCV] Using dilation kernel: ${kernelWidth}x1 for ${documentType || 'unknown'}`);
+
+        let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(kernelWidth, 1));
         cv.dilate(binary, binary, kernel);
         kernel.delete();
 

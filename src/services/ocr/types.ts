@@ -28,9 +28,22 @@ export interface DriverLicenseData {
     code: string; // The code at the bottom right usually
 }
 
+export interface ImageQualityInfo {
+    score: number;
+    resolution: 'low' | 'medium' | 'high';
+    sharpness: number;
+    contrast: number;
+    estimatedOCRSuccess: number;
+    recommendation: string;
+    enhanced: boolean;
+    enhancementMethod?: 'super_resolution' | 'opencv_sharpen' | 'none';
+    enhancementTime?: number;
+}
+
 export interface OCRPipelineResult extends OCRResult {
     documentType: string;
     processedImage?: string; // Data URL of processed image
+    imageQuality?: ImageQualityInfo; // NEW: Quality analysis results
 }
 
 export interface BusinessRegistrationData {
