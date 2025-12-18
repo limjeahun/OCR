@@ -34,7 +34,7 @@ export const ResultDisplay: React.FC<ResultDisplayProps> = ({ result, isLoading,
                     <div className="text-2xl font-bold tracking-tight">
                         {result.documentType.replace('_', ' ')}
                     </div>
-                    <Badge>Confidence: {Math.round(result.confidence)}%</Badge>
+                    <Badge>Confidence: {Math.round(result.confidence * 100)}%</Badge>
                 </div>
 
                 {/* Image Quality Analysis (NEW) */}

@@ -15,22 +15,39 @@ export interface EnhancementResult {
     processingTime: number;
 }
 
+// Class name mapping
+const CLASS_NAMES: DocumentType[] = ['ID_CARD', 'DRIVER_LICENSE', 'BUSINESS_REGISTRATION'];
+const CLASSIFIER_MODEL_URL = '/models/classifier/model.json';
+
 export class TensorFlowService {
-    private model: any = null;
+    private model: any = null;  // Classification model
     private srModel: any = null;
     private isLoading = false;
     private isSRLoading = false;
     private srModelAvailable = false;
+    private classifierAvailable = false;
 
     async loadModel() {
         if (this.model || this.isLoading) return;
         this.isLoading = true;
         try {
-            console.log('TensorFlow classification model loaded (Mock - Aspect Ratio Heuristic)');
-            await new Promise(resolve => setTimeout(resolve, 200));
-            this.model = true;
+            // Try to load the trained classifier model
+            if (!tf) {
+                tf = await import('@tensorflow/tfjs');
+            }
+
+            try {
+                this.model = await tf.loadLayersModel(CLASSIFIER_MODEL_URL);
+                this.classifierAvailable = true;
+                console.log('[TensorFlow] Classification model loaded successfully');
+            } catch (e) {
+                console.warn('[TensorFlow] Classification model not found, using heuristic fallback');
+                this.model = 'heuristic';  // Mark as fallback mode
+                this.classifierAvailable = false;
+            }
         } catch (error) {
             console.error('Failed to load TF model:', error);
+            this.model = 'heuristic';
         } finally {
             this.isLoading = false;
         }
@@ -86,15 +103,57 @@ export class TensorFlowService {
         const aspectRatio = width / height;
         console.log(`Classifying: ${width}x${height} (Aspect: ${aspectRatio.toFixed(2)})`);
 
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // If trained model is available, use it
+        if (this.classifierAvailable && this.model && typeof this.model !== 'string') {
+            try {
+                console.log('[TensorFlow] Using trained classifier model');
+
+                // Preprocess image for MobileNet
+                const tensor = tf.tidy(() => {
+                    const imageTensor = tf.browser.fromPixels(imageElement);
+                    const resized = tf.image.resizeBilinear(imageTensor, [224, 224]);
+                    // Normalize to [-1, 1] (MobileNet preprocessing)
+                    const normalized = resized.div(127.5).sub(1);
+                    return normalized.expandDims(0);  // Add batch dimension
+                });
+
+                // Predict
+                const predictions = this.model.predict(tensor);
+                const probabilities = await predictions.data();
+
+                // Find class with highest probability
+                let maxProb = 0;
+                let maxIndex = 0;
+                for (let i = 0; i < probabilities.length; i++) {
+                    if (probabilities[i] > maxProb) {
+                        maxProb = probabilities[i];
+                        maxIndex = i;
+                    }
+                }
+
+                // Cleanup
+                tensor.dispose();
+                predictions.dispose();
+
+                const predictedType = CLASS_NAMES[maxIndex];
+                console.log(`[TensorFlow] Predicted: ${predictedType} (${(maxProb * 100).toFixed(1)}%)`);
+
+                return { type: predictedType, confidence: maxProb };
+            } catch (error) {
+                console.error('[TensorFlow] Classification error, falling back to heuristic:', error);
+            }
+        }
+
+        // Fallback: Aspect ratio heuristic
+        console.log('[TensorFlow] Using aspect ratio heuristic fallback');
 
         // Portrait -> Business Registration (A4)
         if (height > width) {
             return { type: 'BUSINESS_REGISTRATION', confidence: 0.85 };
         }
 
-        // Landscape -> ID Card or Driver License
-        return { type: 'ID_CARD', confidence: 0.90 };
+        // Landscape -> ID Card (default for now, will be refined by OCR text)
+        return { type: 'ID_CARD', confidence: 0.75 };
     }
 
     /**
