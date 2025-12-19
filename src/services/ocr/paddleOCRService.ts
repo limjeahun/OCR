@@ -4,6 +4,9 @@ import { openCVService } from './opencvService';
 
 // Configure WASM paths to use files from public/ folder
 ort.env.wasm.wasmPaths = '/';
+// Disable multi-threading to avoid Turbopack Worker bundling issues
+ort.env.wasm.numThreads = 1;
+ort.env.wasm.proxy = false;
 
 interface WorkerMessage {
     type: 'progress' | 'result' | 'error' | 'ready';
@@ -38,104 +41,9 @@ export class PaddleOCRService {
             }
 
             try {
-                // Get origin for absolute URLs in worker
-                const origin = typeof window !== 'undefined' ? window.location.origin : '';
-
-                // Create worker using inline worker approach for Next.js compatibility
-                const workerCode = `
-                    const ORIGIN = '${origin}';
-                    
-                    // Load ONNX Runtime from local public folder (not CDN)
-                    importScripts(ORIGIN + '/ort.wasm.min.js');
-                    
-                    ort.env.wasm.wasmPaths = ORIGIN + '/';
-                    
-                    let recSession = null;
-                    let keys = [];
-                    
-                    function decode(data, dims) {
-                        const timeSteps = dims[1];
-                        const numClasses = dims[2];
-                        const sb = [];
-                        let confSum = 0;
-                        let charCount = 0;
-                        let lastIndex = -1;
-                        
-                        for (let t = 0; t < timeSteps; t++) {
-                            let maxVal = -Infinity;
-                            let maxIdx = -1;
-                            const offset = t * numClasses;
-                            
-                            for (let c = 0; c < numClasses; c++) {
-                                if (data[offset + c] > maxVal) {
-                                    maxVal = data[offset + c];
-                                    maxIdx = c;
-                                }
-                            }
-                            
-                            if (maxIdx !== -1 && maxIdx !== 0) {
-                                if (maxIdx !== lastIndex) {
-                                    const realIdx = maxIdx - 1;
-                                    if (realIdx >= 0 && realIdx < keys.length) {
-                                        sb.push(keys[realIdx]);
-                                        confSum += maxVal;
-                                        charCount++;
-                                    }
-                                }
-                            }
-                            lastIndex = maxIdx;
-                        }
-                        
-                        return { text: sb.join(''), conf: charCount > 0 ? 1 : 0 };
-                    }
-                    
-                    async function initModels() {
-                        const dictResponse = await fetch(ORIGIN + '/models/korean_dict.txt');
-                        const dictText = await dictResponse.text();
-                        keys = dictText.split('\\n').map(line => line.trim());
-                        keys.push(' ');
-                        
-                        recSession = await ort.InferenceSession.create(ORIGIN + '/models/ocr_rec_kor.onnx', {
-                            executionProviders: ['wasm']
-                        });
-                        console.log('[OCR Worker] Model loaded');
-                    }
-                    
-                    async function recognizeSingle(imageData, width, height) {
-                        const tensor = new ort.Tensor('float32', imageData, [1, 3, height, width]);
-                        const results = await recSession.run({ 'x': tensor });
-                        const logits = results[Object.keys(results)[0]];
-                        return decode(logits.data, logits.dims);
-                    }
-                    
-                    self.onmessage = async (e) => {
-                        const { type, id, data, batchData } = e.data;
-                        try {
-                            if (type === 'init') {
-                                await initModels();
-                                self.postMessage({ type: 'ready', id });
-                            } else if (type === 'recognize') {
-                                const result = await recognizeSingle(data.imageData, data.width, data.height);
-                                self.postMessage({ type: 'result', id, result });
-                            } else if (type === 'recognizeBatch') {
-                                const results = [];
-                                for (let i = 0; i < batchData.length; i++) {
-                                    const item = batchData[i];
-                                    const result = await recognizeSingle(item.imageData, item.width, item.height);
-                                    results.push(result);
-                                    self.postMessage({ type: 'progress', id, progress: 'box_' + (i + 1) + '_of_' + batchData.length });
-                                }
-                                self.postMessage({ type: 'result', id, batchResults: results });
-                            }
-                        } catch (error) {
-                            self.postMessage({ type: 'error', id, error: error.message || String(error) });
-                        }
-                    };
-                `;
-
-                const blob = new Blob([workerCode], { type: 'application/javascript' });
-                const workerUrl = URL.createObjectURL(blob);
-                this.worker = new Worker(workerUrl);
+                // Use separate Worker file for Next.js Turbopack compatibility
+                // Worker file is located in public/workers/
+                this.worker = new Worker('/workers/ocrRecognitionWorker.js');
 
                 this.worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
                     const { type, id, progress, result, batchResults, error } = event.data;

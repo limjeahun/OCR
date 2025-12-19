@@ -2,6 +2,7 @@ import { tensorFlowService } from './tensorflowService';
 import { openCVService } from './opencvService';
 import { paddleOCRService } from './paddleOCRService';
 import { imageQualityAnalyzer } from './imageQualityAnalyzer';
+import { textCorrector } from './textCorrector';
 import { OCRPipelineResult, ImageQualityInfo } from './types';
 
 export class OCRPipeline {
@@ -10,6 +11,14 @@ export class OCRPipeline {
     private readonly ENHANCEMENT_THRESHOLD = 40;
 
     async processImage(imageSource: HTMLImageElement, onProgress?: (status: string) => void): Promise<OCRPipelineResult> {
+        // 0. Pre-load OpenCV (required for quality analysis)
+        onProgress?.('Loading OpenCV...');
+        try {
+            await openCVService.loadOpenCV();
+        } catch (e) {
+            console.warn('OpenCV pre-load failed:', e);
+        }
+
         // 1. Image Quality Analysis (NEW)
         onProgress?.('Analyzing Image Quality...');
         console.log('Step 1: Analyzing image quality...');
@@ -95,27 +104,46 @@ export class OCRPipeline {
         console.log('Step 5: Recognizing text (PaddleOCR)...');
         const result = await paddleOCRService.recognize(processableImage, onProgress, classification.type);
 
-        // 6. Parsing
+        // 6. Text Correction (NEW: Local NLP-based)
+        onProgress?.('Correcting OCR Text...');
+        console.log('Step 6: Correcting OCR text...');
+        const correctionResult = textCorrector.correct(result.text);
+        const correctedText = correctionResult.corrected;
+
+        if (correctionResult.corrections.length > 0) {
+            console.log(`[TextCorrector] Applied ${correctionResult.corrections.length} corrections:`);
+            correctionResult.corrections.forEach(c => {
+                console.log(`  "${c.original}" → "${c.corrected}" (${c.method}, conf: ${c.confidence.toFixed(2)})`);
+            });
+        }
+
+        // 7. Parsing (using corrected text)
         onProgress?.(`Parsing extracted text for ${classification.type}...`);
         let extractedData;
         if (classification.type === 'BUSINESS_REGISTRATION') {
             const { businessRegistrationParser } = await import('./parsers/businessRegistrationParser');
-            extractedData = businessRegistrationParser.parse(result.text);
+            extractedData = businessRegistrationParser.parse(correctedText);
         } else if (classification.type === 'ID_CARD') {
             const { idCardParser } = await import('./parsers/idCardParser');
-            extractedData = idCardParser.parse(result.text);
+            extractedData = idCardParser.parse(correctedText);
         } else if (classification.type === 'DRIVER_LICENSE') {
             const { driverLicenseParser } = await import('./parsers/driverLicenseParser');
-            extractedData = driverLicenseParser.parse(result.text);
+            extractedData = driverLicenseParser.parse(correctedText);
         }
 
         return {
             documentType: classification.type,
-            text: result.text,
+            text: correctedText,  // Use corrected text
+            rawText: result.text,  // Keep original for comparison
             processedImage: processedImageDataUrl,
             confidence: result.confidence,
             extractedData,
-            imageQuality: qualityInfo  // NEW: Include quality info in result
+            imageQuality: qualityInfo,
+            textCorrection: {  // NEW: Include correction info
+                applied: correctionResult.corrections.length > 0,
+                count: correctionResult.corrections.length,
+                confidence: correctionResult.confidence
+            }
         };
     }
 }

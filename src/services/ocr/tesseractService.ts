@@ -10,16 +10,20 @@ export class TesseractService {
         this.isInitializing = true;
 
         try {
-            // Switch to 'kor' ONLY to prevent English hallucinations (e.g. (F)SRUEAA, AST)
-            // 'kor' usually includes digits and basic punctuation.
-            this.worker = await createWorker('kor');
+            // Use local paths to avoid Turbopack Worker bundling issues
+            // Files are located in public/tesseract/ folder
+            this.worker = await createWorker('kor', 1, {
+                workerPath: '/tesseract/worker.min.js',
+                corePath: '/tesseract/core',
+                langPath: '/tesseract/lang',
+            });
 
             // Set parameters to improve accuracy
             await this.worker.setParameters({
                 tessedit_pageseg_mode: PSM.SINGLE_BLOCK,
                 preserve_interword_spaces: '1',
             });
-            console.log('Tesseract worker initialized');
+            console.log('Tesseract worker initialized (local paths)');
         } catch (error) {
             console.error('Failed to initialize Tesseract:', error);
             throw error;

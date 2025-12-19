@@ -5,6 +5,9 @@ import * as ort from 'onnxruntime-web';
 
 // Configure WASM paths for worker context
 ort.env.wasm.wasmPaths = '/';
+// Disable multi-threading to avoid Turbopack Worker bundling issues
+ort.env.wasm.numThreads = 1;
+ort.env.wasm.proxy = false;
 
 interface RecognitionRequest {
     type: 'init' | 'recognize' | 'recognizeBatch';

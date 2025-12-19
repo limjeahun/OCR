@@ -40,10 +40,18 @@ export interface ImageQualityInfo {
     enhancementTime?: number;
 }
 
+export interface TextCorrectionInfo {
+    applied: boolean;
+    count: number;
+    confidence: number;
+}
+
 export interface OCRPipelineResult extends OCRResult {
     documentType: string;
     processedImage?: string; // Data URL of processed image
-    imageQuality?: ImageQualityInfo; // NEW: Quality analysis results
+    imageQuality?: ImageQualityInfo; // Quality analysis results
+    rawText?: string; // Original OCR text before correction
+    textCorrection?: TextCorrectionInfo; // Text correction info
 }
 
 export interface BusinessRegistrationData {
