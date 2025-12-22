@@ -128,6 +128,9 @@ export class PaddleOCRService {
             }
 
             const option: ort.InferenceSession.SessionOptions = {
+                // PaddleOCR model uses ceil_mode in MaxPool operation
+                // which is NOT supported by WebGPU or WebGL in onnxruntime-web
+                // Using WASM (CPU) for maximum compatibility
                 executionProviders: ['wasm'],
             };
 
