@@ -52,6 +52,19 @@ export interface OCRPipelineResult extends OCRResult {
     imageQuality?: ImageQualityInfo; // Quality analysis results
     rawText?: string; // Original OCR text before correction
     textCorrection?: TextCorrectionInfo; // Text correction info
+    requestId?: string; // Backend OCR request ID (for save)
+}
+
+/**
+ * Backend API OCR 결과 타입
+ * OCRScanner에서 Backend API 응답을 변환하여 사용
+ */
+export interface OcrApiResult {
+    requestId: string;
+    documentType: DocumentType;
+    rawText?: string;
+    parsedData: Record<string, string>;
+    extractedData?: BusinessRegistrationData | IdCardData | DriverLicenseData;
 }
 
 export interface BusinessRegistrationData {

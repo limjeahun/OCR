@@ -1,15 +1,21 @@
 "use client";
 
-import React, { useEffect } from 'react';
-import { BusinessRegistrationData } from '@/services/ocr/parsers/businessRegistrationParser';
-import { Save, Copy } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BusinessRegistrationData } from '@/services/ocr/types';
+import { ocrApi } from '@/services/api/ocrApi';
+import { Save, Copy, Loader2 } from 'lucide-react';
+import { BusinessType } from './OCRScanner';
 
 interface Props {
     data: BusinessRegistrationData;
+    requestId: string;
+    businessType: BusinessType;
 }
 
-export const BusinessRegistrationForm: React.FC<Props> = ({ data }) => {
-    const [formData, setFormData] = React.useState<BusinessRegistrationData>(data);
+export const BusinessRegistrationForm: React.FC<Props> = ({ data, requestId, businessType }) => {
+    const [formData, setFormData] = useState<BusinessRegistrationData>(data);
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     // Update form when data prop changes (new scan)
     useEffect(() => {
@@ -25,12 +31,35 @@ export const BusinessRegistrationForm: React.FC<Props> = ({ data }) => {
             .map(([k, v]) => `${k}: ${v}`)
             .join('\n');
         navigator.clipboard.writeText(text);
-        alert('Copied to clipboard!');
+        alert('클립보드에 복사되었습니다!');
     };
 
-    const handleSave = () => {
-        console.log('Saved data:', formData);
-        alert('Data saved! (Simulation)');
+    const handleSave = async () => {
+        if (!requestId) {
+            alert('요청 ID가 없습니다. 다시 스캔해 주세요.');
+            return;
+        }
+
+        setIsSaving(true);
+        setSaveError(null);
+
+        try {
+            await ocrApi.saveMerchant({
+                requestId,
+                businessType,  // 사용자 선택 값 사용
+                merchantName: formData.corporateName,
+                businessNumber: formData.registrationNumber,
+                representativeName: formData.representative,
+                address: formData.businessAddress || formData.headAddress || '',
+                openingDate: formData.establishmentDate,
+            });
+            alert('저장 완료!');
+        } catch (error) {
+            console.error('Save error:', error);
+            setSaveError(error instanceof Error ? error.message : '저장 실패');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -49,13 +78,29 @@ export const BusinessRegistrationForm: React.FC<Props> = ({ data }) => {
                     </button>
                     <button
                         onClick={handleSave}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
+                        disabled={isSaving}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        <Save size={16} />
-                        저장 완료
+                        {isSaving ? (
+                            <>
+                                <Loader2 size={16} className="animate-spin" />
+                                저장 중...
+                            </>
+                        ) : (
+                            <>
+                                <Save size={16} />
+                                저장 완료
+                            </>
+                        )}
                     </button>
                 </div>
             </div>
+
+            {saveError && (
+                <div className="p-3 bg-red-50 border-b border-red-200 text-red-700 text-sm">
+                    {saveError}
+                </div>
+            )}
 
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                 <InputField
