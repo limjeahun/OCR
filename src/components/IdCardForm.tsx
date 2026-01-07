@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { IdCardData } from '@/services/ocr/types';
-import { Save, Copy } from 'lucide-react';
+import { Copy } from 'lucide-react';
 
 interface Props {
     data: IdCardData;
@@ -27,11 +27,6 @@ export const IdCardForm: React.FC<Props> = ({ data }) => {
         alert('Copied to clipboard!');
     };
 
-    const handleSave = () => {
-        console.log('Saved data:', formData);
-        alert('Data saved! (Simulation)');
-    };
-
     return (
         <div className="w-full bg-slate-50 border rounded-xl overflow-hidden shadow-sm">
             <div className="bg-slate-100 p-4 border-b flex justify-between items-center">
@@ -45,13 +40,6 @@ export const IdCardForm: React.FC<Props> = ({ data }) => {
                         title="Copy text"
                     >
                         <Copy size={18} />
-                    </button>
-                    <button
-                        onClick={handleSave}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
-                    >
-                        <Save size={16} />
-                        저장 완료
                     </button>
                 </div>
             </div>

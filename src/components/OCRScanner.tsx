@@ -4,12 +4,12 @@ import React, { useState } from 'react';
 import { ImageUploader } from './ImageUploader';
 import { ResultDisplay } from './ResultDisplay';
 import { ocrApi } from '@/services/api/ocrApi';
-import { tensorFlowService } from '@/services/ocr/tensorflowService';
+import { tensorFlowService, ImageQualityResult } from '@/services/ocr/tensorflowService';
 import { OCRPipelineResult, BusinessRegistrationData, IdCardData, DriverLicenseData, DocumentType } from '@/services/ocr/types';
 import { BusinessRegistrationForm } from './BusinessRegistrationForm';
 import { IdCardForm } from './IdCardForm';
 import { DriverLicenseForm } from './DriverLicenseForm';
-import { Play } from 'lucide-react';
+import { Play, AlertTriangle, XCircle } from 'lucide-react';
 
 export type BusinessType = 'INDIVIDUAL' | 'CORPORATE';
 
@@ -31,6 +31,10 @@ export const OCRScanner = () => {
     const [classification, setClassification] = useState<ClassificationState | null>(null);
     const [awaitingBusinessType, setAwaitingBusinessType] = useState(false);
 
+    // 에러 및 경고 상태
+    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [qualityWarning, setQualityWarning] = useState<ImageQualityResult | null>(null);
+
     // Step 1: 이미지 업로드 시 문서 타입 분류만 수행
     const handleImageSelect = async (file: File) => {
         const imageUrl = URL.createObjectURL(file);
@@ -38,6 +42,8 @@ export const OCRScanner = () => {
         setResult(null);
         setClassification(null);
         setAwaitingBusinessType(false);
+        setErrorMessage(null);
+        setQualityWarning(null);
         setIsLoading(true);
 
         try {
@@ -50,6 +56,19 @@ export const OCRScanner = () => {
             setStatusMessage('문서 타입 분류 중...');
             const classResult = await tensorFlowService.classify(img);
             console.log('Classification:', classResult);
+
+            // Step 1.5: UNKNOWN 타입 체크 (유효하지 않은 문서)
+            if (classResult.type === 'UNKNOWN') {
+                setErrorMessage('운전면허증, 주민등록증, 사업자 등록증 이미지만 가능합니다.');
+                setIsLoading(false);
+                setStatusMessage('');
+                return;
+            }
+
+            // Step 1.6: 이미지 품질 분석
+            setStatusMessage('이미지 품질 분석 중...');
+            const qualityResult = tensorFlowService.analyzeImageQuality(img);
+            console.log('Image Quality:', qualityResult);
 
             // Step 2: 이미지 리사이징 및 압축 (OCR 정확도 유지)
             setStatusMessage('이미지 최적화 중...');
@@ -82,6 +101,14 @@ export const OCRScanner = () => {
                 imageBase64,
             });
 
+            // 이미지 품질이 낮으면 경고 표시 (진행 여부는 사용자 선택)
+            if (qualityResult.isLowQuality) {
+                setQualityWarning(qualityResult);
+                setIsLoading(false);
+                setStatusMessage('');
+                return;
+            }
+
             // 사업자등록증이면 유형 선택 대기
             if (classResult.type === 'BUSINESS_REGISTRATION') {
                 setAwaitingBusinessType(true);
@@ -95,6 +122,19 @@ export const OCRScanner = () => {
             console.error('Classification Error:', error);
             setStatusMessage(`오류 발생: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
             setIsLoading(false);
+        }
+    };
+
+    // 품질 경고 무시하고 진행
+    const handleProceedAnyway = () => {
+        setQualityWarning(null);
+        if (classification) {
+            if (classification.type === 'BUSINESS_REGISTRATION') {
+                setAwaitingBusinessType(true);
+                setStatusMessage('사업자 유형을 선택한 후 OCR 시작 버튼을 클릭하세요.');
+            } else {
+                runOcr(classification.type, classification.imageBase64, 'CORPORATE');
+            }
         }
     };
 
@@ -143,7 +183,16 @@ export const OCRScanner = () => {
             });
         } catch (error) {
             console.error('OCR Error:', error);
-            setStatusMessage(`오류 발생: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+            const errorMsg = error instanceof Error ? error.message : '알 수 없는 오류';
+
+            // LOW_QUALITY 에러 특별 처리
+            if (errorMsg.startsWith('OCR_LOW_QUALITY:')) {
+                const message = errorMsg.replace('OCR_LOW_QUALITY:', '');
+                setErrorMessage(message);
+                setStatusMessage('');
+            } else {
+                setStatusMessage(`오류 발생: ${errorMsg}`);
+            }
         } finally {
             setIsLoading(false);
             setStatusMessage('');
@@ -162,6 +211,8 @@ export const OCRScanner = () => {
         setResult(null);
         setClassification(null);
         setAwaitingBusinessType(false);
+        setErrorMessage(null);
+        setQualityWarning(null);
     };
 
     return (
@@ -175,6 +226,48 @@ export const OCRScanner = () => {
                     onClear={handleClear}
                     isLoading={isLoading}
                 />
+
+                {/* 에러 메시지 (유효하지 않은 문서 유형) */}
+                {errorMessage && (
+                    <div className="p-6 bg-red-50 rounded-xl border border-red-200 space-y-4">
+                        <div className="flex items-center gap-3 text-red-600">
+                            <XCircle className="w-6 h-6" />
+                            <p className="text-lg font-semibold">{errorMessage}</p>
+                        </div>
+                        <p className="text-sm text-slate-600">
+                            다른 이미지를 업로드해 주세요.
+                        </p>
+                    </div>
+                )}
+
+                {/* 이미지 품질 경고 */}
+                {qualityWarning && (
+                    <div className="p-6 bg-yellow-50 rounded-xl border border-yellow-300 space-y-4">
+                        <div className="flex items-center gap-3 text-yellow-700">
+                            <AlertTriangle className="w-6 h-6" />
+                            <p className="text-lg font-semibold">이미지 품질이 낮습니다</p>
+                        </div>
+                        <p className="text-sm text-slate-700">
+                            {qualityWarning.recommendation || '더 선명한 이미지로 다시 시도하면 OCR 정확도가 향상됩니다.'}
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                            <button
+                                type="button"
+                                onClick={handleClear}
+                                className="px-6 py-3 bg-white text-slate-700 rounded-lg font-medium border border-slate-300 hover:bg-slate-100 transition-colors"
+                            >
+                                새 이미지 업로드
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleProceedAnyway}
+                                className="px-6 py-3 bg-yellow-600 text-white rounded-lg font-medium hover:bg-yellow-700 transition-colors"
+                            >
+                                그래도 진행
+                            </button>
+                        </div>
+                    </div>
+                )}
 
                 {/* 사업자등록증 유형 선택 (OCR 전 단계) */}
                 {awaitingBusinessType && classification?.type === 'BUSINESS_REGISTRATION' && (

@@ -15,6 +15,15 @@ export interface EnhancementResult {
     processingTime: number;
 }
 
+export interface ImageQualityResult {
+    score: number;           // 0.0 ~ 1.0 (0.5 미만 = 저품질)
+    isLowQuality: boolean;
+    resolution: 'low' | 'medium' | 'high';
+    brightness: number;      // 0.0 ~ 1.0
+    contrast: number;        // 0.0 ~ 1.0
+    recommendation: string;
+}
+
 // Class name mapping
 const CLASS_NAMES: DocumentType[] = ['ID_CARD', 'DRIVER_LICENSE', 'BUSINESS_REGISTRATION'];
 const CLASSIFIER_MODEL_URL = '/models/classifier/model.json';
@@ -138,6 +147,12 @@ export class TensorFlowService {
                 const predictedType = CLASS_NAMES[maxIndex];
                 console.log(`[TensorFlow] Predicted: ${predictedType} (${(maxProb * 100).toFixed(1)}%)`);
 
+                // 신뢰도가 70% 미만이면 UNKNOWN 반환
+                if (maxProb < 0.7) {
+                    console.log(`[TensorFlow] Confidence too low (${(maxProb * 100).toFixed(1)}%), returning UNKNOWN`);
+                    return { type: 'UNKNOWN', confidence: maxProb };
+                }
+
                 return { type: predictedType, confidence: maxProb };
             } catch (error) {
                 console.error('[TensorFlow] Classification error, falling back to heuristic:', error);
@@ -145,15 +160,130 @@ export class TensorFlowService {
         }
 
         // Fallback: Aspect ratio heuristic
-        console.log('[TensorFlow] Using aspect ratio heuristic fallback');
+        // 주의: 휴리스틱만으로는 문서와 비문서를 구분할 수 없으므로 낮은 신뢰도 반환 → UNKNOWN 처리됨
+        console.log('[TensorFlow] Using aspect ratio heuristic fallback - returning UNKNOWN (no reliable classification)');
 
-        // Portrait -> Business Registration (A4)
+        // 분류 모델 없이는 신뢰도를 낮게 설정하여 UNKNOWN 처리
+        // Portrait -> 사업자등록증 가능성, Landscape -> ID 카드 가능성
         if (height > width) {
-            return { type: 'BUSINESS_REGISTRATION', confidence: 0.85 };
+            return { type: 'BUSINESS_REGISTRATION', confidence: 0.35 }; // < 0.4 → UNKNOWN
         }
 
-        // Landscape -> ID Card (default for now, will be refined by OCR text)
-        return { type: 'ID_CARD', confidence: 0.75 };
+        return { type: 'ID_CARD', confidence: 0.35 }; // < 0.4 → UNKNOWN
+    }
+
+    /**
+     * Analyze image quality to determine OCR success probability
+     * Returns a quality score and recommendation
+     */
+    analyzeImageQuality(imageElement: HTMLImageElement | HTMLCanvasElement): ImageQualityResult {
+        let width: number, height: number;
+        if (imageElement instanceof HTMLImageElement) {
+            width = imageElement.naturalWidth;
+            height = imageElement.naturalHeight;
+        } else {
+            width = imageElement.width;
+            height = imageElement.height;
+        }
+
+        // 1. Resolution analysis
+        const pixels = width * height;
+        let resolution: 'low' | 'medium' | 'high';
+        let resolutionScore: number;
+
+        if (pixels < 300000) { // < 300K (e.g., < 600x500)
+            resolution = 'low';
+            resolutionScore = 0.3;
+        } else if (pixels < 1000000) { // < 1M
+            resolution = 'medium';
+            resolutionScore = 0.7;
+        } else {
+            resolution = 'high';
+            resolutionScore = 1.0;
+        }
+
+        // 2. Brightness and Contrast analysis using Canvas
+        const canvas = document.createElement('canvas');
+        const sampleSize = 100; // Sample 100x100 for performance
+        canvas.width = sampleSize;
+        canvas.height = sampleSize;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+            return {
+                score: resolutionScore,
+                isLowQuality: resolutionScore < 0.5,
+                resolution,
+                brightness: 0.5,
+                contrast: 0.5,
+                recommendation: resolution === 'low' ? '더 높은 해상도의 이미지를 사용해 주세요.' : ''
+            };
+        }
+
+        ctx.drawImage(imageElement, 0, 0, sampleSize, sampleSize);
+        const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+        const data = imageData.data;
+
+        // Calculate brightness (average luminance)
+        let totalLuminance = 0;
+        let luminanceValues: number[] = [];
+
+        for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i + 1];
+            const b = data[i + 2];
+            const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+            totalLuminance += luminance;
+            luminanceValues.push(luminance);
+        }
+
+        const avgLuminance = totalLuminance / (luminanceValues.length);
+        const brightness = avgLuminance / 255; // 0~1
+
+        // Calculate contrast (standard deviation of luminance)
+        const mean = avgLuminance;
+        let varianceSum = 0;
+        for (const lum of luminanceValues) {
+            varianceSum += Math.pow(lum - mean, 2);
+        }
+        const stdDev = Math.sqrt(varianceSum / luminanceValues.length);
+        const contrast = Math.min(stdDev / 128, 1); // Normalize to 0~1
+
+        // 3. Calculate final score
+        // Weights: Resolution 40%, Brightness 30%, Contrast 30%
+        // Brightness optimal around 0.4~0.7
+        const brightnessPenalty = brightness < 0.2 || brightness > 0.85 ? 0.5 : 1.0;
+        const contrastBonus = contrast > 0.3 ? 1.0 : contrast / 0.3;
+
+        const finalScore = (
+            resolutionScore * 0.4 +
+            brightnessPenalty * 0.3 +
+            contrastBonus * 0.3
+        );
+
+        const isLowQuality = finalScore < 0.5;
+
+        // Generate recommendation
+        let recommendation = '';
+        if (isLowQuality) {
+            const issues: string[] = [];
+            if (resolution === 'low') issues.push('해상도가 낮습니다');
+            if (brightness < 0.3) issues.push('이미지가 너무 어둡습니다');
+            if (brightness > 0.8) issues.push('이미지가 너무 밝습니다');
+            if (contrast < 0.2) issues.push('대비가 낮습니다');
+            recommendation = `${issues.join(', ')}. 더 선명한 이미지로 다시 시도해 주세요.`;
+        }
+
+        console.log(`[ImageQuality] Score: ${(finalScore * 100).toFixed(1)}%, Resolution: ${resolution}, Brightness: ${(brightness * 100).toFixed(1)}%, Contrast: ${(contrast * 100).toFixed(1)}%`);
+
+        return {
+            score: finalScore,
+            isLowQuality,
+            resolution,
+            brightness,
+            contrast,
+            recommendation
+        };
     }
 
     /**

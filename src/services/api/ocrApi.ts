@@ -11,9 +11,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
  */
 export interface OcrApiResponse {
     requestId: string;
-    status: 'PROCESSING' | 'COMPLETED' | 'FAILED';
+    status: 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'LOW_QUALITY';
     rawText?: string;
     parsedData: Record<string, string>;
+    errorMessage?: string;  // LOW_QUALITY 시 에러 메시지
 }
 
 /**
@@ -125,6 +126,10 @@ class OcrApiService {
 
             if (result.status === 'FAILED') {
                 throw new Error('OCR 처리 실패');
+            }
+
+            if (result.status === 'LOW_QUALITY') {
+                throw new Error('OCR_LOW_QUALITY:OCR 인식률이 낮습니다. 더 선명한 이미지로 다시 시도해 주세요.');
             }
 
             // PROCESSING 상태면 대기 후 재시도
