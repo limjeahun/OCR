@@ -9,7 +9,7 @@
 ![Gemma](https://img.shields.io/badge/Gemma3-LLM-8E75B2?style=flat&logo=google&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat&logo=docker&logoColor=white)
 
-> 📂 **프로젝트 위치**
+> 📂 **GitHub 저장소**
 > - **Frontend**: 현재 저장소 ([limjeahun/OCR](https://github.com/limjeahun/OCR))
 > - **Backend**: [limjeahun/Merchant-Management-System](https://github.com/limjeahun/Merchant-Management-System)
 
