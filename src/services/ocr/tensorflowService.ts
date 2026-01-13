@@ -147,8 +147,8 @@ export class TensorFlowService {
                 const predictedType = CLASS_NAMES[maxIndex];
                 console.log(`[TensorFlow] Predicted: ${predictedType} (${(maxProb * 100).toFixed(1)}%)`);
 
-                // 신뢰도가 70% 미만이면 UNKNOWN 반환
-                if (maxProb < 0.7) {
+                // 신뢰도가 60% 미만이면 UNKNOWN 반환 (67.9% 같은 경우도 허용)
+                if (maxProb < 0.6) {
                     console.log(`[TensorFlow] Confidence too low (${(maxProb * 100).toFixed(1)}%), returning UNKNOWN`);
                     return { type: 'UNKNOWN', confidence: maxProb };
                 }
