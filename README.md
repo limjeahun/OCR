@@ -1,5 +1,10 @@
 # OCR 문서 인식 시스템 (Frontend)
 
+![Next.js](https://img.shields.io/badge/Next.js-16.0.10-000000?style=flat&logo=next.js&logoColor=white)
+![React](https://img.shields.io/badge/React-19.2.1-61DAFB?style=flat&logo=react&logoColor=black)
+![TensorFlow.js](https://img.shields.io/badge/TensorFlow.js-4.22.0-FF6F00?style=flat&logo=tensorflow&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=flat&logo=typescript&logoColor=white)
+
 사업자등록증, 주민등록증, 운전면허증을 촬영하면 자동으로 텍스트를 추출해주는 웹 애플리케이션입니다.
 
 > **Backend 저장소**: [limjeahun/Merchant-Management-System](https://github.com/limjeahun/Merchant-Management-System)
