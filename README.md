@@ -7,6 +7,7 @@
 
 사업자등록증, 주민등록증, 운전면허증을 촬영하면 자동으로 텍스트를 추출해주는 웹 애플리케이션입니다.
 
+> **Backend 저장소**: [limjeahun/Merchant-Management-System](https://github.com/limjeahun/Merchant-Management-System)
 
 ## 주요 기능
 
